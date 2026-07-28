@@ -1,0 +1,47 @@
+name: SCSC Google Scholar Scraper
+
+on:
+  # Run every day at 14:00 UTC (08:00 AM Central Time)
+  schedule:
+    - cron: "0 14 * * *"
+
+  # Allow manual trigger from the Actions tab
+  workflow_dispatch:
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # needed to push the updated files back
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history so git log works correctly
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install requests beautifulsoup4 openpyxl
+
+      - name: Run scraper
+        run: |
+          python scholar_scraper.py
+
+      - name: Commit and push results
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Stage files; use || true so a missing file doesn't abort the step
+          git add "New Google Scholar List.xlsx" || true
+
+          git diff --cached --quiet && echo "No changes to commit." || \
+            git commit -m "chore: automated scholar scrape $(date -u +%Y-%m-%d)" && \
+            git push
