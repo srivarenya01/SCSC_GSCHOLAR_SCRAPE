@@ -40,7 +40,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
           # Stage files; use || true so a missing file doesn't abort the step
-          git add "New Google Scholar List.xlsx" || true
+          git add "New Google Scholar List.csv" || true
 
           git diff --cached --quiet && echo "No changes to commit." || \
             git commit -m "chore: automated scholar scrape $(date -u +%Y-%m-%d)" && \

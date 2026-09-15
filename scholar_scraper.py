@@ -1,9 +1,8 @@
 """
 Google Scholar Profile Scraper
 
-This script parses an Excel spreadsheet containing Google Scholar profile URLs,
-fetches citations, h-index, and i10-index statistics, and updates the spreadsheet
-directly. 
+This script downloads the faculty list as xlsx from Google Sheets, scrapes
+citations, h-index, and i10-index, and writes the results to a CSV file.
 To bypass ratelimits, this script includes defensive anti-bot protection.
 """
 
@@ -12,6 +11,7 @@ from __future__ import annotations
 import os
 import re
 import sys
+import csv
 import time
 import random
 import argparse
@@ -33,7 +33,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Local file that the Google Sheet is downloaded into (and then updated in place).
+# Downloaded Google Sheet (source only, not committed). Results go to the matching .csv.
 LOCAL_WORKBOOK_PATH = "New Google Scholar List.xlsx"
 
 # Google Sheet holding the list of Google Scholar profile URLs.
@@ -42,8 +42,8 @@ DEFAULT_SHEET_URL = "https://docs.google.com/spreadsheets/d/1gt2U6_JpOWlNZrsDbaQ
 
 def resolve_excel_source(input_arg: str) -> str:
     """
-    If input_arg is a Google Sheets URL, download it as .xlsx and save it locally
-    (so it gets committed to the repo). Otherwise treat input_arg as a local path.
+    If input_arg is a Google Sheets URL, download it as .xlsx for scraping.
+    Otherwise treat input_arg as a local path.
     """
     if "docs.google.com/spreadsheets" not in input_arg:
         return input_arg
@@ -128,39 +128,60 @@ def normalize_scholar_url(url: str) -> Optional[str]:
         return None
 
 
-def save_workbook(wb: openpyxl.Workbook, excel_path: str) -> str:
+def csv_path_for(excel_path: str) -> str:
+    """Return the CSV output path next to the downloaded/local xlsx source."""
+    return os.path.splitext(excel_path)[0] + ".csv"
+
+
+def write_sheet_csv(sheet, csv_path: str) -> None:
+    """Write the sheet to csv. Keep a column if it has a header or any cell values."""
+    header_row = [cell.value for cell in sheet[1]]
+    max_col = len(header_row)
+    keep_idx = []
+    for i, header in enumerate(header_row):
+        if header:
+            keep_idx.append(i)
+            continue
+        col = i + 1
+        for r in range(2, sheet.max_row + 1):
+            if sheet.cell(row=r, column=col).value not in (None, ""):
+                keep_idx.append(i)
+                break
+    with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.writer(f)
+        for row in sheet.iter_rows(min_col=1, max_col=max_col, values_only=True):
+            writer.writerow(["" if row[i] is None else row[i] for i in keep_idx])
+
+
+def save_csv(sheet, csv_path: str) -> str:
     """
-    Attempt to save the workbook.
-    If writing is blocked (e.g. PermissionError due to file being open in Excel),
-    fallback to saving as filename_YYYY-MM-DD.xlsx in the same folder.
+    Write scrape results to csv.
+    If the file is open (PermissionError), fall back to filename_YYYY-MM-DD.csv.
     """
     try:
-        wb.save(excel_path)
-        return excel_path
+        write_sheet_csv(sheet, csv_path)
+        return csv_path
     except PermissionError:
-        dir_name, base_name = os.path.split(excel_path)
+        dir_name, base_name = os.path.split(csv_path)
         name_part, ext_part = os.path.splitext(base_name)
         date_suffix = datetime.now().strftime("%Y-%m-%d")
-        
-        # Check if the name already ends with the date suffix to avoid growing the filename
         if not name_part.endswith(date_suffix):
             new_base = f"{name_part}_{date_suffix}{ext_part}"
         else:
             new_base = base_name
-            
         new_path = os.path.join(dir_name, new_base)
         logger.warning(
-            f"Permission denied writing to '{excel_path}' (it may be open in Excel). "
+            f"Permission denied writing to '{csv_path}' (it may be open). "
             f"Saving fallback file to '{new_path}' instead."
         )
         try:
-            wb.save(new_path)
+            write_sheet_csv(sheet, new_path)
             return new_path
         except Exception as e:
             logger.error(f"Failed to save fallback file '{new_path}': {e}")
             raise e
     except Exception as e:
-        logger.error(f"Failed to save workbook to '{excel_path}': {e}")
+        logger.error(f"Failed to save csv to '{csv_path}': {e}")
         raise e
 
 
@@ -258,6 +279,7 @@ def main() -> int:
 
     args = parse_args()
     excel_path = resolve_excel_source(args.input)
+    csv_path = csv_path_for(excel_path)
 
     if not os.path.exists(excel_path):
         logger.error(f"Excel file not found at: {excel_path}")
@@ -272,6 +294,10 @@ def main() -> int:
 
     sheet = wb.active
     logger.info(f"Active sheet name: {sheet.title}")
+
+    # Google Sheet sometimes has last names in col A with a blank header.
+    if not sheet.cell(row=1, column=1).value:
+        sheet.cell(row=1, column=1, value="Last Name")
 
     # Read header row
     headers = [cell.value for cell in sheet[1]]
@@ -350,7 +376,7 @@ def main() -> int:
             sheet.cell(row=1, column=updated_col, value="Last Updated")
             logger.info(f"  Appending new column {updated_col} as 'Last Updated'")
         # Save change to header
-        excel_path = save_workbook(wb, excel_path)
+        csv_path = save_csv(sheet, csv_path)
 
     # Existing sheet has the Since columns. Insert All columns to their left if missing.
     if not citations_all_col or not hindex_all_col or not i10index_all_col:
@@ -370,7 +396,7 @@ def main() -> int:
         sheet.cell(row=1, column=hindex_all_col, value="h-index (All)")
         sheet.cell(row=1, column=i10index_all_col, value="i10-index (All)")
         logger.info("Inserted All metric columns before existing Since columns.")
-        excel_path = save_workbook(wb, excel_path)
+        csv_path = save_csv(sheet, csv_path)
 
     # Scrape loop setup
     session = requests.Session()
@@ -425,8 +451,8 @@ def main() -> int:
                 break
             elif status == "rate_limit":
                 # Save progress immediately before sleep/backoff
-                logger.warning("Rate limit or CAPTCHA detected. Saving spreadsheet progress and backing off.")
-                excel_path = save_workbook(wb, excel_path)
+                logger.warning("Rate limit or CAPTCHA detected. Saving csv progress and backing off.")
+                csv_path = save_csv(sheet, csv_path)
 
                 reason = scraped_data.get("reason", "unknown")
                 logger.warning(f"Rate limit reason: {reason}. Sleeping for {backoff_delay} seconds (retry {retries+1}/{max_retries})...")
@@ -481,8 +507,7 @@ def main() -> int:
                 f"Since citations={citations} h-index={h_index} i10-index={i10_index}, Date={current_time}"
             )
 
-            # Save spreadsheet immediately
-            excel_path = save_workbook(wb, excel_path)
+            csv_path = save_csv(sheet, csv_path)
             success_count += 1
         elif scraped_data and scraped_data["status"] in ("login_redirect", "not_found"):
             logger.info("  Skipped: Profile could not be parsed.")
