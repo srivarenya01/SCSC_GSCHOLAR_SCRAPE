@@ -209,10 +209,17 @@ def scrape_profile(session: requests.Session, url: str) -> dict:
             return {"status": "rate_limit", "reason": "table_missing_captcha_title"}
         return {"status": "not_found", "reason": "table_missing"}
 
-    # Parse metrics
-    # The gsc_rsb_st table has two value columns per metric row: "All" (cols[1])
-    # and "Since <year>" (cols[2], the one to its right). We only want the
-    # "Since <year>" column, not the all-time total.
+    def parse_int(raw):
+        raw = (raw or "").strip()
+        if not raw or raw == "-":
+            return 0
+        try:
+            return int(raw.replace(",", ""))
+        except ValueError:
+            return 0
+
+    # The gsc_rsb_st table has two value columns per metric row: All (cols[1])
+    # and Since <year> (cols[2]).
     rows = table.find_all("tr")
     since_label = None
     if rows:
@@ -225,7 +232,6 @@ def scrape_profile(session: requests.Session, url: str) -> dict:
         cols = row.find_all(["td", "th"])
         if len(cols) >= 3:
             metric_name = cols[0].text.strip().lower()
-            since_val_str = cols[2].text.strip()
 
             if "citation" in metric_name:
                 key = "citations"
@@ -236,13 +242,8 @@ def scrape_profile(session: requests.Session, url: str) -> dict:
             else:
                 continue
 
-            since_val = 0
-            if since_val_str and since_val_str != "-":
-                try:
-                    since_val = int(since_val_str.replace(",", ""))
-                except ValueError:
-                    since_val = 0
-            metrics[key] = since_val
+            metrics[key] = parse_int(cols[2].text)
+            metrics[key + "_all"] = parse_int(cols[1].text)
 
     return {
         "status": "success",
@@ -281,6 +282,9 @@ def main() -> int:
     citations_col = None
     hindex_col = None
     i10index_col = None
+    citations_all_col = None
+    hindex_all_col = None
+    i10index_all_col = None
     updated_col = None
 
     for idx, val in enumerate(headers):
@@ -290,16 +294,28 @@ def main() -> int:
         if "google scholar" in val_str or "profile" in val_str or "link" in val_str:
             link_col = idx + 1
         elif "citation" in val_str:
-            citations_col = idx + 1
+            if "all" in val_str:
+                citations_all_col = idx + 1
+            else:
+                citations_col = idx + 1
         elif "h-index" in val_str:
-            hindex_col = idx + 1
+            if "all" in val_str:
+                hindex_all_col = idx + 1
+            else:
+                hindex_col = idx + 1
         elif "i10-index" in val_str:
-            i10index_col = idx + 1
+            if "all" in val_str:
+                i10index_all_col = idx + 1
+            else:
+                i10index_col = idx + 1
         elif "last updated" in val_str or "updated" in val_str:
             updated_col = idx + 1
 
     logger.info("Detected columns:")
     logger.info(f"  Link: {link_col}")
+    logger.info(f"  Citations (All): {citations_all_col}")
+    logger.info(f"  h-index (All): {hindex_all_col}")
+    logger.info(f"  i10-index (All): {i10index_all_col}")
     logger.info(f"  Citations: {citations_col}")
     logger.info(f"  h-index: {hindex_col}")
     logger.info(f"  i10-index: {i10index_col}")
@@ -334,6 +350,26 @@ def main() -> int:
             sheet.cell(row=1, column=updated_col, value="Last Updated")
             logger.info(f"  Appending new column {updated_col} as 'Last Updated'")
         # Save change to header
+        excel_path = save_workbook(wb, excel_path)
+
+    # Existing sheet has the Since columns. Insert All columns to their left if missing.
+    if not citations_all_col or not hindex_all_col or not i10index_all_col:
+        insert_at = min(citations_col, hindex_col, i10index_col)
+        sheet.insert_cols(insert_at, 3)
+        if link_col >= insert_at:
+            link_col += 3
+        citations_col += 3
+        hindex_col += 3
+        i10index_col += 3
+        if updated_col and updated_col >= insert_at:
+            updated_col += 3
+        citations_all_col = insert_at
+        hindex_all_col = insert_at + 1
+        i10index_all_col = insert_at + 2
+        sheet.cell(row=1, column=citations_all_col, value="Citations (All)")
+        sheet.cell(row=1, column=hindex_all_col, value="h-index (All)")
+        sheet.cell(row=1, column=i10index_all_col, value="i10-index (All)")
+        logger.info("Inserted All metric columns before existing Since columns.")
         excel_path = save_workbook(wb, excel_path)
 
     # Scrape loop setup
@@ -415,26 +451,35 @@ def main() -> int:
             citations = metrics.get("citations", 0)
             h_index = metrics.get("h_index", 0)
             i10_index = metrics.get("i10_index", 0)
+            citations_all = metrics.get("citations_all", 0)
+            h_index_all = metrics.get("h_index_all", 0)
+            i10_index_all = metrics.get("i10_index_all", 0)
             current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-            # Rename headers once to reflect the "Since <year>" values now being
-            # written, instead of the previous "All" totals.
             if not headers_renamed:
                 since_label = scraped_data.get("since_label")
+                sheet.cell(row=1, column=citations_all_col, value="Citations (All)")
+                sheet.cell(row=1, column=hindex_all_col, value="h-index (All)")
+                sheet.cell(row=1, column=i10index_all_col, value="i10-index (All)")
                 if since_label:
                     sheet.cell(row=1, column=citations_col, value=f"Citations ({since_label})")
                     sheet.cell(row=1, column=hindex_col, value=f"h-index ({since_label})")
                     sheet.cell(row=1, column=i10index_col, value=f"i10-index ({since_label})")
-                    logger.info(f"Renamed metric headers to reflect '{since_label}' values.")
+                    logger.info(f"Set metric headers to All + '{since_label}'.")
                 headers_renamed = True
 
-            # Write values to cells
+            sheet.cell(row=row_idx, column=citations_all_col, value=citations_all)
+            sheet.cell(row=row_idx, column=hindex_all_col, value=h_index_all)
+            sheet.cell(row=row_idx, column=i10index_all_col, value=i10_index_all)
             sheet.cell(row=row_idx, column=citations_col, value=citations)
             sheet.cell(row=row_idx, column=hindex_col, value=h_index)
             sheet.cell(row=row_idx, column=i10index_col, value=i10_index)
             sheet.cell(row=row_idx, column=updated_col, value=current_time)
 
-            logger.info(f"  Updated: Citations={citations}, h-index={h_index}, i10-index={i10_index}, Date={current_time}")
+            logger.info(
+                f"  Updated: All citations={citations_all} h-index={h_index_all} i10-index={i10_index_all} | "
+                f"Since citations={citations} h-index={h_index} i10-index={i10_index}, Date={current_time}"
+            )
 
             # Save spreadsheet immediately
             excel_path = save_workbook(wb, excel_path)

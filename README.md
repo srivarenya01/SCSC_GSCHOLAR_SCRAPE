@@ -1,6 +1,6 @@
 # SCSC Google Scholar Scraper
 
-An automated tool to scrape Google Scholar profiles for SCSC faculty, tracking citations, h-index, and i10-index (since the rolling 5-year window Scholar reports) over time.
+An automated tool to scrape Google Scholar profiles for SCSC faculty, tracking citations, h-index, and i10-index (all-time and the rolling Since window Scholar reports) over time.
 
 ## Features
 
@@ -69,5 +69,6 @@ The `New Google Scholar List.xlsx` file includes the following columns:
 - `Last Name` / `First Name`: Faculty name
 - `Rank`, `adloc`, `Location`: Faculty metadata
 - `Link to Google Scholar Profile`: Source profile URL
-- `Citations (Since <year>)`, `h-index (Since <year>)`, `i10-index (Since <year>)`: Metrics from Scholar's rolling window, not all-time totals
+- `Citations (All)`, `h-index (All)`, `i10-index (All)`: All-time totals
+- `Citations (Since <year>)`, `h-index (Since <year>)`, `i10-index (Since <year>)`: Scholar's rolling window (currently Since 2021)
 - `Last Updated`: Timestamp of the most recent successful scrape for that row
