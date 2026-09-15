@@ -5,14 +5,14 @@ An automated tool to scrape Google Scholar profiles for SCSC faculty, tracking c
 ## Features
 
 - **Profile Scraping**: Visits each faculty member's Google Scholar profile and extracts citation metrics.
-- **Google Sheets Source**: Reads the list of faculty profile links from a Google Sheet (fetched and saved locally on every run).
+- **Google Sheets Source**: Reads the faculty list from a Google Sheet as xlsx, then writes results to csv.
 - **Anti-Bot Defenses**: Randomized delays, CAPTCHA/rate-limit detection, and exponential backoff between requests.
 - **Automated Scheduling**: Includes a GitHub Actions workflow to run the scraper **daily** and commit results back to the repository.
 
 ## Project Structure
 
-- `scholar_scraper.py`: The main script that downloads the sheet, scrapes profiles, and updates the workbook.
-- `New Google Scholar List.xlsx`: Local copy of the faculty profile list (downloaded from Google Sheets), updated in place with scraped metrics.
+- `scholar_scraper.py`: Downloads the Google Sheet as xlsx, scrapes profiles, and writes csv.
+- `New Google Scholar List.csv`: Scraped metrics. The xlsx download is source-only and is not committed.
 - `.github/workflows/scraper.yml`: GitHub Actions configuration for automated daily runs.
 
 ## Local Setup
@@ -58,14 +58,14 @@ python scholar_scraper.py
 
 The included GitHub Action is configured to:
 1. Run **daily** at 14:00 UTC (08:00 AM Central Time).
-2. Download the latest Google Sheet, scrape each profile, and update the workbook.
-3. Automatically commit and push the updated `New Google Scholar List.xlsx` back to the repository.
+2. Download the latest Google Sheet (xlsx), scrape each profile, and write csv.
+3. Automatically commit and push the updated `New Google Scholar List.csv` back to the repository.
 
 You can also trigger a run manually via the **Actions** tab in your GitHub repository by selecting the "SCSC Google Scholar Scraper" workflow and clicking "Run workflow".
 
-## Output Columns (Excel)
+## Output Columns (CSV)
 
-The `New Google Scholar List.xlsx` file includes the following columns:
+The `New Google Scholar List.csv` file includes the following columns:
 - `Last Name` / `First Name`: Faculty name
 - `Rank`, `adloc`, `Location`: Faculty metadata
 - `Link to Google Scholar Profile`: Source profile URL
