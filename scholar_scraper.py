@@ -104,17 +104,42 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def clean_cell_value(val: any) -> str:
+    """
+    Clean cell values, stripping Excel/Google Sheets compatibility formula wrappers
+    such as =IFERROR(__xludf.DUMMYFUNCTION(...), "actual_value").
+    """
+    if val is None:
+        return ""
+    val_str = str(val).strip()
+    formula_match = re.match(r'^=IFERROR\(.*,\s*["\']?(.*?)["\']?\)$', val_str, re.IGNORECASE | re.DOTALL)
+    if formula_match:
+        return formula_match.group(1).replace('""', '"').strip()
+    return val_str
+
+
 def normalize_scholar_url(url: str) -> Optional[str]:
     """
     Clean and extract normalized Google Scholar URL.
+    Handles plain URLs, wrapped formulas (=HYPERLINK, =IFERROR), and extra parameters.
     """
     if not url:
         return None
-    url = url.strip()
-    if not url.startswith(("http://", "https://")):
-        url = "https://" + url
+    url = clean_cell_value(url)
+    if not url:
+        return None
+
+    # Search for standard scholar citations URL pattern anywhere in the string
+    match = re.search(r'https?://scholar\.google\.[a-z\.]+/citations\?[^\s"\'<>)]+', url)
+    if match:
+        clean_url = match.group(0)
+    elif url.startswith(("http://", "https://")):
+        clean_url = url
+    else:
+        clean_url = "https://" + url
+
     try:
-        parsed = urlparse(url)
+        parsed = urlparse(clean_url)
         if "scholar.google" not in parsed.netloc or "citations" not in parsed.path:
             return None
         qs = parse_qs(parsed.query)
@@ -122,6 +147,7 @@ def normalize_scholar_url(url: str) -> Optional[str]:
         if not user_ids:
             return None
         user_id = user_ids[0].strip()
+        user_id = re.sub(r'["\';,].*$', '', user_id)
         return f"https://scholar.google.com/citations?user={user_id}&hl=en"
     except Exception as e:
         logger.warning(f"Error parsing URL '{url}': {e}")
@@ -135,7 +161,7 @@ def csv_path_for(excel_path: str) -> str:
 
 def write_sheet_csv(sheet, csv_path: str) -> None:
     """Write the sheet to csv. Keep a column if it has a header or any cell values."""
-    header_row = [cell.value for cell in sheet[1]]
+    header_row = [clean_cell_value(cell.value) for cell in sheet[1]]
     max_col = len(header_row)
     keep_idx = []
     for i, header in enumerate(header_row):
@@ -150,7 +176,7 @@ def write_sheet_csv(sheet, csv_path: str) -> None:
     with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
         writer = csv.writer(f)
         for row in sheet.iter_rows(min_col=1, max_col=max_col, values_only=True):
-            writer.writerow(["" if row[i] is None else row[i] for i in keep_idx])
+            writer.writerow([clean_cell_value(row[i]) for i in keep_idx])
 
 
 def save_csv(sheet, csv_path: str) -> str:
@@ -287,12 +313,17 @@ def main() -> int:
 
     logger.info(f"Loading Excel file: {excel_path}")
     try:
-        wb = openpyxl.load_workbook(excel_path)
+        wb = openpyxl.load_workbook(excel_path, data_only=True)
     except Exception as e:
         logger.error(f"Failed to load Excel file: {e}")
         return 1
 
+    # Select sheet: prefer sheet named "Faculty", "Faculty List", or "Input" if present, otherwise active sheet
     sheet = wb.active
+    for name in ["Faculty", "Faculty List", "Input"]:
+        if name in wb.sheetnames:
+            sheet = wb[name]
+            break
     logger.info(f"Active sheet name: {sheet.title}")
 
     # Google Sheet sometimes has last names in col A with a blank header.
@@ -300,7 +331,7 @@ def main() -> int:
         sheet.cell(row=1, column=1, value="Last Name")
 
     # Read header row
-    headers = [cell.value for cell in sheet[1]]
+    headers = [clean_cell_value(cell.value) for cell in sheet[1]]
     logger.info(f"Headers: {headers}")
 
     # Detect column indices (1-based)
@@ -350,53 +381,101 @@ def main() -> int:
     if not link_col:
         logger.error("Could not find Google Scholar profile link column in sheet headers.")
         return 1
-    if not citations_col or not hindex_col or not i10index_col:
-        logger.error("Could not find all metric columns (Citations, h-index, i10-index).")
-        return 1
+    # Determine the last non-empty column in row 1
+    last_non_empty = 0
+    for idx, val in enumerate(headers):
+        if val:
+            last_non_empty = idx + 1
 
-    # Resolve updated_col if not found
-    if not updated_col:
-        logger.info("Header 'Last Updated' not found. Searching for existing empty-header columns or appending.")
-        # Search for column where header is empty but row 2 has a value
-        for idx, val in enumerate(headers):
-            if not val:
-                val_in_row_2 = sheet.cell(row=2, column=idx+1).value
-                if val_in_row_2:
-                    updated_col = idx + 1
-                    sheet.cell(row=1, column=updated_col, value="Last Updated")
-                    logger.info(f"  Using empty-header column {updated_col} (contains row 2 value '{val_in_row_2}') as 'Last Updated'")
-                    break
-        else:
-            # Append a new column
-            last_non_empty = 0
-            for idx, val in enumerate(headers):
-                if val:
-                    last_non_empty = idx + 1
-            updated_col = last_non_empty + 1
-            sheet.cell(row=1, column=updated_col, value="Last Updated")
-            logger.info(f"  Appending new column {updated_col} as 'Last Updated'")
-        # Save change to header
-        csv_path = save_csv(sheet, csv_path)
+    # If the sheet doesn't have metric columns at all, append all 7 of them automatically
+    if not citations_col and not hindex_col and not i10index_col and not citations_all_col:
+        logger.info("Metric columns not found in sheet headers. Appending them automatically.")
+        citations_all_col = last_non_empty + 1
+        hindex_all_col = last_non_empty + 2
+        i10index_all_col = last_non_empty + 3
+        citations_col = last_non_empty + 4
+        hindex_col = last_non_empty + 5
+        i10index_col = last_non_empty + 6
+        updated_col = last_non_empty + 7
 
-    # Existing sheet has the Since columns. Insert All columns to their left if missing.
-    if not citations_all_col or not hindex_all_col or not i10index_all_col:
-        insert_at = min(citations_col, hindex_col, i10index_col)
-        sheet.insert_cols(insert_at, 3)
-        if link_col >= insert_at:
-            link_col += 3
-        citations_col += 3
-        hindex_col += 3
-        i10index_col += 3
-        if updated_col and updated_col >= insert_at:
-            updated_col += 3
-        citations_all_col = insert_at
-        hindex_all_col = insert_at + 1
-        i10index_all_col = insert_at + 2
         sheet.cell(row=1, column=citations_all_col, value="Citations (All)")
         sheet.cell(row=1, column=hindex_all_col, value="h-index (All)")
         sheet.cell(row=1, column=i10index_all_col, value="i10-index (All)")
-        logger.info("Inserted All metric columns before existing Since columns.")
+        sheet.cell(row=1, column=citations_col, value="Citations")
+        sheet.cell(row=1, column=hindex_col, value="h-index")
+        sheet.cell(row=1, column=i10index_col, value="i10-index")
+        sheet.cell(row=1, column=updated_col, value="Last Updated")
         csv_path = save_csv(sheet, csv_path)
+    else:
+        # Resolve updated_col if not found
+        if not updated_col:
+            logger.info("Header 'Last Updated' not found. Searching for existing empty-header columns or appending.")
+            for idx, val in enumerate(headers):
+                if not val:
+                    val_in_row_2 = sheet.cell(row=2, column=idx+1).value
+                    if val_in_row_2:
+                        updated_col = idx + 1
+                        sheet.cell(row=1, column=updated_col, value="Last Updated")
+                        logger.info(f"  Using empty-header column {updated_col} (contains row 2 value '{val_in_row_2}') as 'Last Updated'")
+                        break
+            else:
+                updated_col = last_non_empty + 1
+                sheet.cell(row=1, column=updated_col, value="Last Updated")
+                logger.info(f"  Appending new column {updated_col} as 'Last Updated'")
+            csv_path = save_csv(sheet, csv_path)
+
+        # Existing sheet has the Since columns. Insert All columns to their left if missing.
+        if not citations_all_col or not hindex_all_col or not i10index_all_col:
+            insert_at = min(c for c in [citations_col, hindex_col, i10index_col] if c is not None)
+            sheet.insert_cols(insert_at, 3)
+            if link_col >= insert_at:
+                link_col += 3
+            if citations_col:
+                citations_col += 3
+            if hindex_col:
+                hindex_col += 3
+            if i10index_col:
+                i10index_col += 3
+            if updated_col and updated_col >= insert_at:
+                updated_col += 3
+            citations_all_col = insert_at
+            hindex_all_col = insert_at + 1
+            i10index_all_col = insert_at + 2
+            sheet.cell(row=1, column=citations_all_col, value="Citations (All)")
+            sheet.cell(row=1, column=hindex_all_col, value="h-index (All)")
+            sheet.cell(row=1, column=i10index_all_col, value="i10-index (All)")
+            logger.info("Inserted All metric columns before existing Since columns.")
+            csv_path = save_csv(sheet, csv_path)
+
+    # Pre-populate metrics from existing CSV if available
+    if os.path.exists(csv_path):
+        try:
+            with open(csv_path, mode="r", encoding="utf-8-sig") as f:
+                reader = csv.DictReader(f)
+                cached_metrics = {}
+                for r in reader:
+                    norm_u = normalize_scholar_url(r.get("Link to Google Scholar Profile", ""))
+                    if norm_u:
+                        cached_metrics[norm_u] = r
+
+            for row_idx in range(2, sheet.max_row + 1):
+                raw_u = sheet.cell(row=row_idx, column=link_col).value
+                norm_u = normalize_scholar_url(str(raw_u)) if raw_u else None
+                if norm_u and norm_u in cached_metrics:
+                    prev = cached_metrics[norm_u]
+                    if not sheet.cell(row=row_idx, column=citations_all_col).value:
+                        sheet.cell(row=row_idx, column=citations_all_col, value=prev.get("Citations (All)", ""))
+                        sheet.cell(row=row_idx, column=hindex_all_col, value=prev.get("h-index (All)", ""))
+                        sheet.cell(row=row_idx, column=i10index_all_col, value=prev.get("i10-index (All)", ""))
+                        since_key = [k for k in prev.keys() if "citation" in k.lower() and "all" not in k.lower()]
+                        sheet.cell(row=row_idx, column=citations_col, value=prev.get(since_key[0] if since_key else "Citations", ""))
+                        h_since_key = [k for k in prev.keys() if "h-index" in k.lower() and "all" not in k.lower()]
+                        sheet.cell(row=row_idx, column=hindex_col, value=prev.get(h_since_key[0] if h_since_key else "h-index", ""))
+                        i10_since_key = [k for k in prev.keys() if "i10-index" in k.lower() and "all" not in k.lower()]
+                        sheet.cell(row=row_idx, column=i10index_col, value=prev.get(i10_since_key[0] if i10_since_key else "i10-index", ""))
+                        sheet.cell(row=row_idx, column=updated_col, value=prev.get("Last Updated", ""))
+        except Exception as e:
+            logger.warning(f"Could not pre-load cached CSV metrics: {e}")
 
     # Scrape loop setup
     session = requests.Session()
@@ -434,8 +513,8 @@ def main() -> int:
     headers_renamed = False
 
     for idx, (row_idx, raw_url, url) in enumerate(rows_to_process, 1):
-        first_name = sheet.cell(row=row_idx, column=2).value or ""
-        last_name = sheet.cell(row=row_idx, column=1).value or ""
+        first_name = clean_cell_value(sheet.cell(row=row_idx, column=2).value)
+        last_name = clean_cell_value(sheet.cell(row=row_idx, column=1).value)
         logger.info(f"[{idx}/{len(rows_to_process)}] Processing {first_name} {last_name} ({url})")
 
         retries = 0
