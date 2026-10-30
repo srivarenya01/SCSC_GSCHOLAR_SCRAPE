@@ -355,12 +355,12 @@ def main() -> int:
                 citations_all_col = idx + 1
             else:
                 citations_col = idx + 1
-        elif "h-index" in val_str:
+        elif "h-index" in val_str or "h_index" in val_str:
             if "all" in val_str:
                 hindex_all_col = idx + 1
             else:
                 hindex_col = idx + 1
-        elif "i10-index" in val_str:
+        elif "i10-index" in val_str or "i10_index" in val_str:
             if "all" in val_str:
                 i10index_all_col = idx + 1
             else:
@@ -399,11 +399,11 @@ def main() -> int:
         updated_col = last_non_empty + 7
 
         sheet.cell(row=1, column=citations_all_col, value="Citations (All)")
-        sheet.cell(row=1, column=hindex_all_col, value="h-index (All)")
-        sheet.cell(row=1, column=i10index_all_col, value="i10-index (All)")
+        sheet.cell(row=1, column=hindex_all_col, value="h_index (All)")
+        sheet.cell(row=1, column=i10index_all_col, value="i10_index (All)")
         sheet.cell(row=1, column=citations_col, value="Citations")
-        sheet.cell(row=1, column=hindex_col, value="h-index")
-        sheet.cell(row=1, column=i10index_col, value="i10-index")
+        sheet.cell(row=1, column=hindex_col, value="h_index")
+        sheet.cell(row=1, column=i10index_col, value="i10_index")
         sheet.cell(row=1, column=updated_col, value="Last Updated")
         csv_path = save_csv(sheet, csv_path)
     else:
@@ -442,8 +442,8 @@ def main() -> int:
             hindex_all_col = insert_at + 1
             i10index_all_col = insert_at + 2
             sheet.cell(row=1, column=citations_all_col, value="Citations (All)")
-            sheet.cell(row=1, column=hindex_all_col, value="h-index (All)")
-            sheet.cell(row=1, column=i10index_all_col, value="i10-index (All)")
+            sheet.cell(row=1, column=hindex_all_col, value="h_index (All)")
+            sheet.cell(row=1, column=i10index_all_col, value="i10_index (All)")
             logger.info("Inserted All metric columns before existing Since columns.")
             csv_path = save_csv(sheet, csv_path)
 
@@ -465,8 +465,8 @@ def main() -> int:
             hindex_col = insert_at + 1
             i10index_col = insert_at + 2
             sheet.cell(row=1, column=citations_col, value="Citations (Since)")
-            sheet.cell(row=1, column=hindex_col, value="h-index (Since)")
-            sheet.cell(row=1, column=i10index_col, value="i10-index (Since)")
+            sheet.cell(row=1, column=hindex_col, value="h_index (Since)")
+            sheet.cell(row=1, column=i10index_col, value="i10_index (Since)")
             logger.info("Inserted Since metric columns after existing All columns.")
             csv_path = save_csv(sheet, csv_path)
 
@@ -488,14 +488,14 @@ def main() -> int:
                     prev = cached_metrics[norm_u]
                     if not sheet.cell(row=row_idx, column=citations_all_col).value:
                         sheet.cell(row=row_idx, column=citations_all_col, value=prev.get("Citations (All)", ""))
-                        sheet.cell(row=row_idx, column=hindex_all_col, value=prev.get("h-index (All)", ""))
-                        sheet.cell(row=row_idx, column=i10index_all_col, value=prev.get("i10-index (All)", ""))
+                        sheet.cell(row=row_idx, column=hindex_all_col, value=prev.get("h_index (All)") or prev.get("h-index (All)", ""))
+                        sheet.cell(row=row_idx, column=i10index_all_col, value=prev.get("i10_index (All)") or prev.get("i10-index (All)", ""))
                         since_key = [k for k in prev.keys() if "citation" in k.lower() and "all" not in k.lower()]
                         sheet.cell(row=row_idx, column=citations_col, value=prev.get(since_key[0] if since_key else "Citations", ""))
-                        h_since_key = [k for k in prev.keys() if "h-index" in k.lower() and "all" not in k.lower()]
-                        sheet.cell(row=row_idx, column=hindex_col, value=prev.get(h_since_key[0] if h_since_key else "h-index", ""))
-                        i10_since_key = [k for k in prev.keys() if "i10-index" in k.lower() and "all" not in k.lower()]
-                        sheet.cell(row=row_idx, column=i10index_col, value=prev.get(i10_since_key[0] if i10_since_key else "i10-index", ""))
+                        h_since_key = [k for k in prev.keys() if ("h-index" in k.lower() or "h_index" in k.lower()) and "all" not in k.lower()]
+                        sheet.cell(row=row_idx, column=hindex_col, value=prev.get(h_since_key[0] if h_since_key else "h_index", ""))
+                        i10_since_key = [k for k in prev.keys() if ("i10-index" in k.lower() or "i10_index" in k.lower()) and "all" not in k.lower()]
+                        sheet.cell(row=row_idx, column=i10index_col, value=prev.get(i10_since_key[0] if i10_since_key else "i10_index", ""))
                         sheet.cell(row=row_idx, column=updated_col, value=prev.get("Last Updated", ""))
         except Exception as e:
             logger.warning(f"Could not pre-load cached CSV metrics: {e}")
@@ -587,12 +587,12 @@ def main() -> int:
             if not headers_renamed:
                 since_label = scraped_data.get("since_label")
                 sheet.cell(row=1, column=citations_all_col, value="Citations (All)")
-                sheet.cell(row=1, column=hindex_all_col, value="h-index (All)")
-                sheet.cell(row=1, column=i10index_all_col, value="i10-index (All)")
+                sheet.cell(row=1, column=hindex_all_col, value="h_index (All)")
+                sheet.cell(row=1, column=i10index_all_col, value="i10_index (All)")
                 if since_label:
                     sheet.cell(row=1, column=citations_col, value=f"Citations ({since_label})")
-                    sheet.cell(row=1, column=hindex_col, value=f"h-index ({since_label})")
-                    sheet.cell(row=1, column=i10index_col, value=f"i10-index ({since_label})")
+                    sheet.cell(row=1, column=hindex_col, value=f"h_index ({since_label})")
+                    sheet.cell(row=1, column=i10index_col, value=f"i10_index ({since_label})")
                     logger.info(f"Set metric headers to All + '{since_label}'.")
                 headers_renamed = True
 

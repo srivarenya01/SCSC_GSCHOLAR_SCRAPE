@@ -69,6 +69,6 @@ The `New Google Scholar List.csv` file includes the following columns:
 - `Last Name` / `First Name`: Faculty name
 - `Rank`, `adloc`, `Location`: Faculty metadata
 - `Link to Google Scholar Profile`: Source profile URL
-- `Citations (All)`, `h-index (All)`, `i10-index (All)`: All-time totals
-- `Citations (Since <year>)`, `h-index (Since <year>)`, `i10-index (Since <year>)`: Scholar's rolling window (currently Since 2021)
+- `Citations (All)`, `h_index (All)`, `i10_index (All)`: All-time totals
+- `Citations (Since <year>)`, `h_index (Since <year>)`, `i10_index (Since <year>)`: Scholar's rolling window (currently Since 2021)
 - `Last Updated`: Timestamp of the most recent successful scrape for that row
