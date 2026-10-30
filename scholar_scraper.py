@@ -350,36 +350,15 @@ def main() -> int:
     if not link_col:
         logger.error("Could not find Google Scholar profile link column in sheet headers.")
         return 1
-    if not citations_col or not hindex_col or not i10index_col:
-        logger.error("Could not find all metric columns (Citations, h-index, i10-index).")
+
+    has_since = bool(citations_col and hindex_col and i10index_col)
+    has_all = bool(citations_all_col and hindex_all_col and i10index_all_col)
+    if not has_since and not has_all:
+        logger.error("Could not find metric columns (Citations, h-index, i10-index).")
         return 1
 
-    # Resolve updated_col if not found
-    if not updated_col:
-        logger.info("Header 'Last Updated' not found. Searching for existing empty-header columns or appending.")
-        # Search for column where header is empty but row 2 has a value
-        for idx, val in enumerate(headers):
-            if not val:
-                val_in_row_2 = sheet.cell(row=2, column=idx+1).value
-                if val_in_row_2:
-                    updated_col = idx + 1
-                    sheet.cell(row=1, column=updated_col, value="Last Updated")
-                    logger.info(f"  Using empty-header column {updated_col} (contains row 2 value '{val_in_row_2}') as 'Last Updated'")
-                    break
-        else:
-            # Append a new column
-            last_non_empty = 0
-            for idx, val in enumerate(headers):
-                if val:
-                    last_non_empty = idx + 1
-            updated_col = last_non_empty + 1
-            sheet.cell(row=1, column=updated_col, value="Last Updated")
-            logger.info(f"  Appending new column {updated_col} as 'Last Updated'")
-        # Save change to header
-        csv_path = save_csv(sheet, csv_path)
-
     # Existing sheet has the Since columns. Insert All columns to their left if missing.
-    if not citations_all_col or not hindex_all_col or not i10index_all_col:
+    if not has_all:
         insert_at = min(citations_col, hindex_col, i10index_col)
         sheet.insert_cols(insert_at, 3)
         if link_col >= insert_at:
@@ -396,6 +375,51 @@ def main() -> int:
         sheet.cell(row=1, column=hindex_all_col, value="h-index (All)")
         sheet.cell(row=1, column=i10index_all_col, value="i10-index (All)")
         logger.info("Inserted All metric columns before existing Since columns.")
+        csv_path = save_csv(sheet, csv_path)
+
+    # New sheet has All columns only. Insert Since columns to their right if missing.
+    if not has_since:
+        insert_at = max(citations_all_col, hindex_all_col, i10index_all_col) + 1
+        sheet.insert_cols(insert_at, 3)
+        if link_col >= insert_at:
+            link_col += 3
+        if citations_all_col >= insert_at:
+            citations_all_col += 3
+        if hindex_all_col >= insert_at:
+            hindex_all_col += 3
+        if i10index_all_col >= insert_at:
+            i10index_all_col += 3
+        if updated_col and updated_col >= insert_at:
+            updated_col += 3
+        citations_col = insert_at
+        hindex_col = insert_at + 1
+        i10index_col = insert_at + 2
+        sheet.cell(row=1, column=citations_col, value="Citations (Since)")
+        sheet.cell(row=1, column=hindex_col, value="h-index (Since)")
+        sheet.cell(row=1, column=i10index_col, value="i10-index (Since)")
+        logger.info("Inserted Since metric columns after existing All columns.")
+        csv_path = save_csv(sheet, csv_path)
+
+    # Resolve updated_col if not found (after metric inserts so indexes stay valid).
+    if not updated_col:
+        logger.info("Header 'Last Updated' not found. Searching for existing empty-header columns or appending.")
+        headers = [cell.value for cell in sheet[1]]
+        for idx, val in enumerate(headers):
+            if not val:
+                val_in_row_2 = sheet.cell(row=2, column=idx+1).value
+                if val_in_row_2:
+                    updated_col = idx + 1
+                    sheet.cell(row=1, column=updated_col, value="Last Updated")
+                    logger.info(f"  Using empty-header column {updated_col} (contains row 2 value '{val_in_row_2}') as 'Last Updated'")
+                    break
+        else:
+            last_non_empty = 0
+            for idx, val in enumerate(headers):
+                if val:
+                    last_non_empty = idx + 1
+            updated_col = last_non_empty + 1
+            sheet.cell(row=1, column=updated_col, value="Last Updated")
+            logger.info(f"  Appending new column {updated_col} as 'Last Updated'")
         csv_path = save_csv(sheet, csv_path)
 
     # Scrape loop setup
