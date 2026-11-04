@@ -1,11 +1,8 @@
 name: SCSC Google Scholar Scraper
 
 on:
-  # Run every day at 14:00 UTC (08:00 AM Central Time)
-  schedule:
-    - cron: "0 14 * * *"
-
-  # Allow manual trigger from the Actions tab
+  # Daily scrape is off. Scholar blocks the GitHub runner, and a failed
+  # run was overwriting the csv with empty citation columns.
   workflow_dispatch:
 
 jobs:
