@@ -7,13 +7,15 @@ An automated tool to scrape Google Scholar profiles for SCSC faculty, tracking c
 - **Profile Scraping**: Visits each faculty member's Google Scholar profile and extracts citation metrics.
 - **Google Sheets Source**: Reads the faculty list from a Google Sheet as xlsx, then writes results to csv.
 - **Anti-Bot Defenses**: Randomized delays, CAPTCHA/rate-limit detection, and exponential backoff between requests.
-- **Automated Scheduling**: Includes a GitHub Actions workflow to run the scraper **daily** and commit results back to the repository.
+- **Windows server**: Double-click `run_scraper.bat`, or install a Task Scheduler job for Monday and Thursday at 08:00.
 
 ## Project Structure
 
 - `scholar_scraper.py`: Downloads the Google Sheet as xlsx, scrapes profiles, and writes csv.
 - `New Google Scholar List.csv`: Scraped metrics. The xlsx download is source-only and is not committed.
-- `.github/workflows/scraper.yml`: GitHub Actions configuration for automated daily runs.
+- `run_scraper.bat`: Click to run on a Windows machine. Restores the previous csv if citations come back empty, then pushes csv to GitHub.
+- `install_schedule.bat` / `uninstall_schedule.bat`: Create or remove a Task Scheduler job (Monday and Thursday at 08:00).
+- `.github/workflows/scraper.yml`: Manual GitHub Action only. Daily GitHub runs are off because Scholar blocks those runners.
 
 ## Local Setup
 
@@ -54,14 +56,18 @@ python scholar_scraper.py
 - `--limit`: Limit the number of profiles scraped in one run (default: none).
 - `--skip-updated`: Skip profiles already updated today.
 
-## Automation (GitHub Actions)
+## Windows server
 
-The included GitHub Action is configured to:
-1. Run **daily** at 14:00 UTC (08:00 AM Central Time).
-2. Download the latest Google Sheet (xlsx), scrape each profile, and write csv.
-3. Automatically commit and push the updated `New Google Scholar List.csv` back to the repository.
+1. Install Python 3, then `pip install requests beautifulsoup4 openpyxl` (or use `venv` in this folder).
+2. Double-click `run_scraper.bat` to scrape once. Watch `logs\scraper_run.log`.
+3. Double-click `install_schedule.bat` to run Monday and Thursday at 08:00 while you are logged on (lock the screen is fine; sign-out is not).
+4. The machine needs git credentials if you want the csv pushed to GitHub (IMPORTDATA). Set `PUSH_TO_GITHUB=0` at the top of `run_scraper.bat` to skip that.
 
-You can also trigger a run manually via the **Actions** tab in your GitHub repository by selecting the "SCSC Google Scholar Scraper" workflow and clicking "Run workflow".
+If a run gets empty citation columns (Scholar block), the bat puts the previous csv back and does not push.
+
+## GitHub Actions
+
+Daily GitHub scrape is off. You can still run the workflow by hand from the Actions tab. Prefer the Windows bat on your server.
 
 ## Output Columns (CSV)
 
